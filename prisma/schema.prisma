@@ -1,0 +1,22 @@
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model NoiseReading {
+  readingId  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid @map("reading_id")
+  timestamp  DateTime @db.Timestamptz(6)
+  latitude   Float    @db.DoublePrecision
+  longitude  Float    @db.DoublePrecision
+  studentId  String   @db.VarChar(50) @map("student_id")
+  authHash   String   @db.VarChar(64) @map("auth_hash")
+  domainData Json     @map("domain_data")
+  createdAt  DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+
+  @@map("noise_readings")
+}
