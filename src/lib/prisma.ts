@@ -7,12 +7,13 @@
  */
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../generated/prisma/client";
+import { toPostgresConnectionString } from "./db-url";
 import { env } from "./env";
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
 function createPrismaClient(): PrismaClient {
-  const adapter = new PrismaPg({ connectionString: env.DB_URL });
+  const adapter = new PrismaPg({ connectionString: toPostgresConnectionString(env.DB_URL) });
   return new PrismaClient({
     adapter,
     log: env.isProduction ? ["error"] : ["warn", "error"],

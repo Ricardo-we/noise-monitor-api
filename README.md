@@ -24,7 +24,7 @@ DB_URL="postgresql://USER:PASSWORD@ep-xxxx-pooler.us-east-2.aws.neon.tech/neondb
 ```
 
 > En Neon usa el host con `-pooler` para la API (connection pooler) y el host **sin** `-pooler` para migraciones.
-> `?sslmode=require` es obligatorio en Neon.
+> `?sslmode=require` es obligatorio en Neon; la API lo añade solo si falta (ver `src/lib/db-url.ts`).
 
 Genera el cliente de Prisma y arranca:
 
