@@ -27,3 +27,9 @@ export class NotFoundError extends AppError {
     super(404, "NOT_FOUND", message);
   }
 }
+
+export class NearbyReadingError extends AppError {
+  constructor() {
+    super(409, "NEARBY_READING_EXISTS", "Ya existe una medición a 50 metros o menos en el mismo día");
+  }
+}

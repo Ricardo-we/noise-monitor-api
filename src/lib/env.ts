@@ -11,6 +11,14 @@ const envSchema = z.object({
   HOST: z.string().min(1).default("0.0.0.0"),
   DB_URL: z.string().min(1, "DB_URL es obligatoria (cadena de conexión de Neon)"),
   CORS_ORIGIN: z.string().default("*"),
+  MEASUREMENT_TIME_ZONE: z.string().default("America/Guatemala").refine((value) => {
+    try {
+      new Intl.DateTimeFormat("en", { timeZone: value });
+      return true;
+    } catch {
+      return false;
+    }
+  }, "MEASUREMENT_TIME_ZONE debe ser una zona horaria IANA válida"),
 });
 
 const parsed = envSchema.safeParse(process.env);

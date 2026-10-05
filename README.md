@@ -41,6 +41,9 @@ El servidor verifica la conexión con la base de datos al arrancar; si `DB_URL` 
 | `npm run build`        | Compila TypeScript a `dist/`                   |
 | `npm start`            | Ejecuta la build (`node dist/src/index.js`)    |
 | `npm run typecheck`    | Revisa tipos sin emitir archivos               |
+| `npm test`            | Pruebas del contrato de entrada                |
+| `npm run test:integration` | Pruebas HTTP y PostgreSQL local (requiere `TEST_DB_URL`) |
+| `npm run data:quality` | Auditoría de solo lectura de `noise_readings` (HU-18) |
 | `npm run prisma:generate` | Regenera el cliente de Prisma               |
 | `npm run prisma:studio`   | Abre Prisma Studio contra la BD              |
 
@@ -157,11 +160,54 @@ Todos los errores usan la misma forma:
 | `400`       | `INVALID_JSON`      | El body no es JSON válido                            |
 | `404`       | `NOT_FOUND`         | La ruta no existe                                     |
 | `409`       | `DUPLICATE_RESOURCE`| Violación de clave única (Prisma `P2002`)             |
+| `409`       | `NEARBY_READING_EXISTS` | Hay otra medición a 50 m o menos en el mismo día local (HU-08) |
 | `400`       | `FOREIGN_KEY_ERROR` | Clave foránea inválida (Prisma `P2003`)               |
 | `500`       | `INTERNAL_ERROR`    | Error no previsto (en desarrollo incluye el detalle)  |
 | `503`       | `DB_UNAVAILABLE`    | La base de datos no responde (Prisma `P1001`)          |
 
 El mapeo completo de códigos de Prisma a códigos HTTP vive en `src/app/middlewares/error-handler.ts`.
+
+### HU-08: radio de 50 metros
+
+Antes de insertar, la API busca **cualquier medición** del mismo día calendario
+a una distancia **menor o igual a 50 metros**. Usa `timestamp` de la captura,
+no `created_at`, y la zona `MEASUREMENT_TIME_ZONE` (por defecto `America/Guatemala`).
+Los timestamps conservan su instante y se almacenan como `TIMESTAMPTZ`.
+La distancia se calcula con Haversine y radio terrestre medio de 6 371 008,8 m;
+no hace falta instalar PostGIS.
+
+| Caso | Respuesta |
+| --- | --- |
+| Primera medición en la zona y el día | `201` |
+| Otra a 49,99 m o exactamente 50 m ese día | `409` |
+| Otra a 50,01 m ese día | `201` |
+| Misma ubicación en un día local distinto | `201` |
+| Otro estudiante mide dentro del radio ese día | `409` |
+
+```json
+{
+  "error": {
+    "code": "NEARBY_READING_EXISTS",
+    "message": "Ya existe una medición a 50 metros o menos en el mismo día"
+  }
+}
+```
+
+Esta interpretación sigue la prevención de duplicados de HU-08 en el plan.
+El alcance global, el límite inclusivo y la zona horaria son decisiones de esta
+implementación para revisión del PM. Una referencia anterior del equipo hablaba
+del último registro del día; esa interpretación produciría resultados distintos.
+
+La búsqueda y la inserción se ejecutan en una transacción con bloqueo por día
+y aislamiento `ReadCommitted`. La búsqueda ocurre **después** de adquirir el
+bloqueo, en otra consulta, para detectar una inserción concurrente ya confirmada.
+Todos los escritores deben usar este flujo y la misma zona horaria: una escritura
+directa desde otro cliente no participa del bloqueo.
+
+El bloqueo serializa los guardados de un día. Es adecuado para este prototipo;
+si aumenta mucho el volumen, habrá que medir tiempos y revisar la estrategia.
+La búsqueda filtra por un intervalo de timestamp, por lo que un índice en ese
+campo puede ayudar. No se modifica automáticamente la tabla existente.
 
 ---
 
@@ -247,3 +293,65 @@ CORS_ORIGIN="https://mi-frontend.com,https://otro.com"
   añade un middleware que valide `student_id` + `auth_hash` contra tu tabla de estudiantes.
 - El pool de conexiones lo gestiona `@prisma/adapter-pg` a través del connection pooler de Neon;
   no es necesario añadir `pgbouncer` por tu cuenta.
+
+## 7. Pruebas reproducibles
+
+```bash
+npm ci
+DB_URL='postgresql://noise_test:noise_test@127.0.0.1:55432/noise_monitor_test?sslmode=disable' npm run prisma:generate
+npm run typecheck
+npm test
+npm run build
+```
+
+Para las pruebas contra PostgreSQL real, inicia Docker Desktop y crea una base
+local descartable. Las credenciales siguientes son únicamente de prueba:
+
+```bash
+docker run --detach --rm --name noise-monitor-hu08-test \
+  -e POSTGRES_USER=noise_test -e POSTGRES_PASSWORD=noise_test \
+  -e POSTGRES_DB=noise_monitor_test -p 127.0.0.1:55432:5432 postgres:17-alpine
+
+# Espera a que responda con "accepting connections".
+docker exec noise-monitor-hu08-test pg_isready -U noise_test -d noise_monitor_test
+
+TEST_DB_URL='postgresql://noise_test:noise_test@127.0.0.1:55432/noise_monitor_test?sslmode=disable' npm run test:integration
+
+# Elimina exclusivamente el contenedor descartable de esta prueba.
+docker stop noise-monitor-hu08-test
+```
+
+La suite de integración **vacía `noise_readings` antes de cada caso**.
+Solo acepta un host local y la base `noise_monitor_test`. No la apuntes a Neon.
+Comprueba guardado, radio, días y offsets, casos geográficos, concurrencia,
+errores de entrada y el detector de calidad con datos sintéticos corruptos.
+
+## 8. HU-18: revisión de estructura y calidad de datos
+
+Configura la conexión real del equipo en `.env`, que está excluido de Git.
+No sustituyas esta conexión por la base de otro ejercicio. Luego ejecuta:
+
+```bash
+npm run data:quality
+```
+
+El informe JSON se guarda en `reports/`, también excluido de Git. Revisa columnas,
+tipos, nulos permitidos, valores predeterminados, restricciones e índices, y cuenta:
+
+- Nulos en campos obligatorios y coordenadas inválidas.
+- Carnés vacíos o de longitud incorrecta; hashes que no tienen formato SHA-256.
+- JSON incompleto o con tipos incorrectos.
+- dB fuera del rango vigente `[-160, 150]` y duración fuera de `1..300000` ms.
+- Inconsistencia de mínimo, promedio y máximo, y diferencia entre `value_db` y su métrica.
+- Pares de mediciones a 50 m o menos en el mismo día local, sin filtrar por estudiante.
+
+La tolerancia de comparación de métricas es `0.000001` dB, un criterio técnico
+del auditor. Los problemas pueden solaparse y los pares no son un conteo de
+filas duplicadas. Un hash con formato correcto no acredita que sea auténtico.
+La auditoría usa una transacción **READ ONLY** y no borra ni corrige datos.
+La búsqueda de pares tiene un límite de ejecución de 60 segundos; si el volumen
+lo supera, la auditoría falla explícitamente y debe programarse una revisión por lotes.
+
+Las solicitudes rechazadas no se almacenan en la tabla actual. Para ese criterio,
+se necesita revisar los logs con el responsable de despliegue. El resultado local
+de pruebas no acredita calidad ni estructura de la instancia real de Neon.
