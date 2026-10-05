@@ -16,7 +16,7 @@ las funcionalidades a Marvin.
 | Tarea | Responsable en el plan | Resultado de este trabajo |
 | --- | --- | --- |
 | HU-03: clonar backend | Equipo | Completado localmente; dependencias y cliente Prisma instalados |
-| HU-08: validar radio antes de guardar | Marvin | Implementado y probado localmente; presentado como borrador para revisión |
+| HU-08: validar radio antes de guardar | Marvin | Implementado y probado localmente; listo para revisión, publicación pendiente |
 | HU-18: revisar tabla y calidad | Marvin y Darwin | Modelo revisado y auditoría reproducible preparada; pendiente auditar la base del equipo |
 
 Las fechas originales de estas tareas ya transcurrieron. No se cambió la
@@ -49,7 +49,9 @@ de otro integrante. Los resultados anteriores son los comprobados hoy.
    datos sintéticos. Se verificaron distancias, fechas, concurrencia, errores y
    detección de datos corruptos. Las pruebas impiden apuntar a una base remota.
 10. **Documentar y preparar revisión.** Se actualizaron README y esta bitácora.
-    La propuesta debe revisarse antes de incorporarse al servidor del equipo.
+    Se intentó publicar mediante Git y el complemento GitHub. La terminal no
+    tenía autenticación y el complemento rechazó la escritura con código 403.
+    La propuesta quedó guardada en la rama local para revisión y entrega.
 
 ## 3. Decisiones de HU-08 que debe conocer el PM
 
@@ -162,6 +164,9 @@ descartable y ejecutar `npm run test:integration`; esa suite no utiliza Neon.
   requieren trabajo adicional de sus historias. El código original solo guarda
   `auth_hash`; esta tarea no convierte ese campo en autenticación.
 - HU-18 sigue pendiente de la conexión y auditoría de la base del proyecto.
+- La publicación del borrador en GitHub está pendiente: la conexión disponible
+  devolvió `403 Resource not accessible by integration` al crear el árbol de
+  archivos. No se creó una pull request ni se modificó la rama remota `main`.
 - HU-08 sigue pendiente de la revisión de sus criterios y de integración y prueba
   con la APK y el servidor del equipo. Las pruebas locales no son una prueba de producción.
 
@@ -197,7 +202,8 @@ metros o menos en el mismo día, el endpoint devuelve 409 y no agrega otra fila.
 Probé el guardado, el límite de distancia, el cambio de día y solicitudes
 simultáneas contra PostgreSQL local; la compilación también pasó.
 
-Dejé una propuesta para revisión. Tomé el día de Guatemala y comparé contra todas
+Dejé una propuesta local para revisión; la publicación en GitHub quedó pendiente
+por los permisos de escritura de la conexión. Tomé el día de Guatemala y comparé contra todas
 las mediciones del día, incluyendo otros estudiantes. Esos criterios necesitan
 quedar acordados contigo porque el plan no los detalla completamente.
 
