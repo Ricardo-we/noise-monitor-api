@@ -1,6 +1,6 @@
 # Avance de tareas de Marvin - Grupo 1
 
-Fecha de trabajo: 5 de octubre de 2026, Guatemala.
+Fecha de trabajo: 5 y 6 de octubre de 2026, Guatemala.
 Proyecto: monitoreo de ruido urbano. Responsable: Marvin Danilo Culajay.
 Repositorio: https://github.com/Ricardo-we/noise-monitor-api
 Base revisada: `main`, commit `1d51fa6`.
@@ -16,8 +16,8 @@ las funcionalidades a Marvin.
 | Tarea | Responsable en el plan | Resultado de este trabajo |
 | --- | --- | --- |
 | HU-03: clonar backend | Equipo | Completado localmente; dependencias y cliente Prisma instalados |
-| HU-08: validar radio antes de guardar | Marvin | Implementado y probado localmente; listo para revisión, publicación pendiente |
-| HU-18: revisar tabla y calidad | Marvin y Darwin | Modelo revisado y auditoría reproducible preparada; pendiente auditar la base del equipo |
+| HU-08: validar radio antes de guardar | Marvin | Implementado y probado localmente; rama publicada en GitHub para revisión |
+| HU-18: revisar tabla y calidad | Marvin y Darwin | Auditoría de solo lectura ejecutada en la base real; hallazgos documentados para revisión conjunta |
 
 Las fechas originales de estas tareas ya transcurrieron. No se cambió la
 planificación compartida ni se atribuyó el estado pendiente a falta de trabajo
@@ -51,7 +51,13 @@ de otro integrante. Los resultados anteriores son los comprobados hoy.
 10. **Documentar y preparar revisión.** Se actualizaron README y esta bitácora.
     Se intentó publicar mediante Git y el complemento GitHub. La terminal no
     tenía autenticación y el complemento rechazó la escritura con código 403.
-    La propuesta quedó guardada en la rama local para revisión y entrega.
+    El 6 de octubre se completó la autenticación desde VS Code y se publicó la
+    rama conservando los commits `ff6d87b` y `f9e9590`. Se verificó su presencia
+    mediante una lectura independiente de GitHub.
+11. **Auditar la base real.** Se localizó la invitación institucional de Neon y
+    se accedió al proyecto compartido `noise_db`. La auditoría encontró 99
+    mediciones, 15 JSON incompletos, 9 duraciones inválidas y 1134 pares cercanos.
+    El detalle y sus límites están en [AUDITORIA_HU18_NEON.md](AUDITORIA_HU18_NEON.md).
 
 ## 3. Decisiones de HU-08 que debe conocer el PM
 
@@ -101,8 +107,8 @@ El modelo existente contiene ocho columnas, descritas en `prisma/schema.prisma`:
 | domain_data | JSONB | Métricas y contexto del dispositivo |
 | created_at | TIMESTAMPTZ | Momento del guardado |
 
-Esta descripción procede del código. **No acredita la estructura efectiva de
-Neon** hasta ejecutar la auditoría contra la conexión correcta del equipo.
+La auditoría del 6 de octubre confirmó esta estructura en Neon. El informe
+agregado está en [HU18_NEON_2026-10-06.json](evidencia/HU18_NEON_2026-10-06.json).
 
 El auditor detecta nulos obligatorios, coordenadas inválidas, JSON incompleto,
 dB fuera del rango actual, duraciones incorrectas, inconsistencia entre mínimo,
@@ -130,8 +136,8 @@ En la terminal de la carpeta del backend:
 
 ```bash
 npm ci
-cp .env.example .env
-# Completar DB_URL en .env con la conexión del equipo.
+# Solo si no existe .env, copiar .env.example y completar DB_URL.
+# En esta copia de Marvin la conexión institucional ya está configurada.
 npm run prisma:generate
 npm run typecheck
 npm test
@@ -163,14 +169,15 @@ descartable y ejecutar `npm run test:integration`; esa suite no utiliza Neon.
 - La relación carné-dispositivo, la verificación del hash y el token del despliegue
   requieren trabajo adicional de sus historias. El código original solo guarda
   `auth_hash`; esta tarea no convierte ese campo en autenticación.
-- HU-18 sigue pendiente de la conexión y auditoría de la base del proyecto.
-- La publicación del borrador en GitHub está pendiente: la conexión disponible
-  devolvió `403 Resource not accessible by integration` al crear el árbol de
-  archivos. No se creó una pull request ni se modificó la rama remota `main`.
+- HU-18 ya se ejecutó sobre los datos reales del equipo. Queda revisar los
+  hallazgos con Darwin y Ricardo y acordar acciones sobre los datos históricos.
+- La rama de trabajo ya se publicó en GitHub desde VS Code. La integración aún
+  devolvió `403 Resource not accessible by integration`, pero la autenticación
+  del editor permitió subir los commits. La rama remota `main` no se modificó.
 - HU-08 sigue pendiente de la revisión de sus criterios y de integración y prueba
   con la APK y el servidor del equipo. Las pruebas locales no son una prueba de producción.
 
-### Búsqueda de la conexión solicitada por Marvin
+### Búsqueda inicial del 5 de octubre y acceso resuelto el 6 de octubre
 
 Se buscaron archivos de configuración en las carpetas locales de proyectos,
 Documentos, Descargas y los proyectos disponibles del curso. Los `.env`
@@ -192,7 +199,11 @@ Las dos consultas finalizaron correctamente sin resultados. No se copiaron
 credenciales de otros ejercicios ni se cambiaron sus tablas. Esta comprobación
 no acredita la calidad de los datos del proyecto de ruido: demuestra que su
 tabla no está en las dos bases accesibles de esa cuenta. Ricardo debe facilitar
-la conexión que usa la API, o compartir el proyecto correcto en Neon.
+la conexión que usa la API, o compartir el proyecto correcto en Neon. Esa fue la
+situación inicial del 5 de octubre. El 6 de octubre se encontró la invitación
+en `mdculajaym@alumno.uspg.edu.gt` y se confirmó el acceso como Editor al proyecto
+`noise_db` de la organización del equipo. Se configuró `.env` con permisos
+locales restringidos y se ejecutó la auditoría sin modificar datos.
 
 ## 7. Explicación propuesta para Ricardo
 
@@ -202,15 +213,14 @@ metros o menos en el mismo día, el endpoint devuelve 409 y no agrega otra fila.
 Probé el guardado, el límite de distancia, el cambio de día y solicitudes
 simultáneas contra PostgreSQL local; la compilación también pasó.
 
-Dejé una propuesta local para revisión; la publicación en GitHub quedó pendiente
-por los permisos de escritura de la conexión. Tomé el día de Guatemala y comparé contra todas
+Publiqué la rama de trabajo en GitHub para revisión. Tomé el día de Guatemala y comparé contra todas
 las mediciones del día, incluyendo otros estudiantes. Esos criterios necesitan
 quedar acordados contigo porque el plan no los detalla completamente.
 
-Para HU-18 revisé el modelo y preparé un auditor de solo lectura con controles de
-nulos, coordenadas, métricas y duplicados. Falta acceso a la base Neon que usa
-este backend para comprobar estructura y datos reales con Darwin. Con esa
-conexión podemos ejecutar el auditor y cerrar la revisión con evidencia.
+Para HU-18 ejecuté el auditor de solo lectura en Neon: revisó 99 mediciones y
+encontró 15 sin `metric` y `value_db`, 9 duraciones fuera del contrato actual y
+1134 pares cercanos del mismo día. Documenté los resultados para revisarlos con
+Darwin. Los pares son combinaciones entre lecturas, no filas duplicadas.
 
 ## Fuentes de trabajo
 
