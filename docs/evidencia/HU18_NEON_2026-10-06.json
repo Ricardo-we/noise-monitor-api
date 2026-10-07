@@ -1,0 +1,150 @@
+{
+  "generated_at": "2026-10-06T12:37:17.433Z",
+  "database": "neondb",
+  "table": "public.noise_readings",
+  "measurement_time_zone": "America/Guatemala",
+  "schema": {
+    "columns": [
+      {
+        "column_name": "reading_id",
+        "data_type": "uuid",
+        "is_nullable": "NO",
+        "column_default": "gen_random_uuid()",
+        "character_maximum_length": null
+      },
+      {
+        "column_name": "timestamp",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO",
+        "column_default": null,
+        "character_maximum_length": null
+      },
+      {
+        "column_name": "latitude",
+        "data_type": "double precision",
+        "is_nullable": "NO",
+        "column_default": null,
+        "character_maximum_length": null
+      },
+      {
+        "column_name": "longitude",
+        "data_type": "double precision",
+        "is_nullable": "NO",
+        "column_default": null,
+        "character_maximum_length": null
+      },
+      {
+        "column_name": "student_id",
+        "data_type": "character varying",
+        "is_nullable": "NO",
+        "column_default": null,
+        "character_maximum_length": 50
+      },
+      {
+        "column_name": "auth_hash",
+        "data_type": "character varying",
+        "is_nullable": "NO",
+        "column_default": null,
+        "character_maximum_length": 64
+      },
+      {
+        "column_name": "domain_data",
+        "data_type": "jsonb",
+        "is_nullable": "NO",
+        "column_default": null,
+        "character_maximum_length": null
+      },
+      {
+        "column_name": "created_at",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO",
+        "column_default": "now()",
+        "character_maximum_length": null
+      }
+    ],
+    "constraints": [
+      {
+        "name": "noise_readings_auth_hash_not_null",
+        "type": "n",
+        "definition": "NOT NULL auth_hash"
+      },
+      {
+        "name": "noise_readings_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "name": "noise_readings_domain_data_not_null",
+        "type": "n",
+        "definition": "NOT NULL domain_data"
+      },
+      {
+        "name": "noise_readings_latitude_not_null",
+        "type": "n",
+        "definition": "NOT NULL latitude"
+      },
+      {
+        "name": "noise_readings_longitude_not_null",
+        "type": "n",
+        "definition": "NOT NULL longitude"
+      },
+      {
+        "name": "noise_readings_pkey",
+        "type": "p",
+        "definition": "PRIMARY KEY (reading_id)"
+      },
+      {
+        "name": "noise_readings_reading_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL reading_id"
+      },
+      {
+        "name": "noise_readings_student_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL student_id"
+      },
+      {
+        "name": "noise_readings_timestamp_not_null",
+        "type": "n",
+        "definition": "NOT NULL \"timestamp\""
+      }
+    ],
+    "indexes": [
+      {
+        "indexname": "noise_readings_pkey",
+        "indexdef": "CREATE UNIQUE INDEX noise_readings_pkey ON public.noise_readings USING btree (reading_id)"
+      }
+    ]
+  },
+  "quality": {
+    "total_readings": 99,
+    "null_required_fields": 0,
+    "invalid_coordinates": 0,
+    "invalid_student_ids": 0,
+    "non_sha256_hash_format": 0,
+    "malformed_domain_data": 15,
+    "db_out_of_range": 0,
+    "inconsistent_min_avg_max": 0,
+    "value_metric_mismatch": 0,
+    "invalid_duration": 9,
+    "first_measurement": "2026-09-26T03:02:10.158Z",
+    "last_measurement": "2026-09-30T05:49:06.736Z",
+    "nearby_same_day_pairs": 1134
+  },
+  "criteria": {
+    "decibels_range": [
+      -160,
+      150
+    ],
+    "nearby_radius_meters": 50,
+    "day_source": "timestamp de la medición, convertido a measurement_time_zone",
+    "metric_comparison_tolerance": 0.000001,
+    "hash_check": "Solo formato hexadecimal SHA-256; no verifica identidad ni dispositivo"
+  },
+  "limitations": [
+    "Los conteos de problemas pueden solaparse; no deben sumarse como registros distintos.",
+    "Los pares cercanos no equivalen al número de registros duplicados.",
+    "La API no almacena un historial de solicitudes rechazadas; ese criterio necesita evidencia de logs o una tarea adicional.",
+    "El rango de dB procede del contrato actual; falta confirmar si la app reporta dBFS o dB SPL."
+  ]
+}

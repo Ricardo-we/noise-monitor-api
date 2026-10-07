@@ -11,7 +11,7 @@ import { z } from "zod";
  */
 const DECIBELS = { min: -160, max: 150 } as const;
 
-/** Una medición de audio de 5 s como máximo (más tiempo = payload sospechoso). */
+/** Una medición de audio de 5 minutos como máximo. */
 const MAX_RECORDING_DURATION_MS = 300_000;
 
 export const saveAudioRecordSchema = z.strictObject({
