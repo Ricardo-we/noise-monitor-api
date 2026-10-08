@@ -75,6 +75,22 @@ Flujo de una petición: `route → middleware validate (Zod) → controller → 
 
 ## 3. Endpoint disponible
 
+### `GET /api/health-check`
+
+Comprueba que la API responde y que la base de datos está accesible.
+
+**Respuesta `200 OK`**
+
+```json
+{ "status": "ok", "database": "ok" }
+```
+
+Si no se puede consultar la base de datos, responde `503 Service Unavailable`:
+
+```json
+{ "status": "error", "database": "unavailable" }
+```
+
 ### `POST /api/save-audio-record`
 
 Guarda una lectura de ruido. La tabla ya existe en Neon (ver [sección 4](#4-tabla-en-neon)).

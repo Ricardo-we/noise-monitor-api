@@ -130,6 +130,12 @@ test("400 para payload inválido sin insertar, 404 para ruta desconocida", async
   assert.equal((await pool.query("SELECT count(*)::int AS n FROM noise_readings")).rows[0].n, 0);
 });
 
+test("GET /api/health-check verifica la conexión con la base de datos", async () => {
+  const response = await fetch(apiUrl.replace("/save-audio-record", "/health-check"));
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { status: "ok", database: "ok" });
+});
+
 test("HU-18: auditoría detecta datos corruptos y pares cercanos sin modificar filas", async () => {
   const insert = (latitude: number, data: unknown) => pool.query(`
     INSERT INTO noise_readings(timestamp, latitude, longitude, student_id, auth_hash, domain_data)
