@@ -25,6 +25,19 @@ export function validateBody<TSchema extends ZodType>(schema: TSchema): RequestH
 }
 
 /** Convierte los issues de Zod en una lista plana `{ path, message, code }`. */
+/** Express 5 expone query como getter; la consulta validada queda en locals. */
+export function validateQuery<TSchema extends ZodType>(schema: TSchema): RequestHandler {
+  return (req, res, next) => {
+    const result = schema.safeParse(req.query);
+    if (!result.success) {
+      next(new ValidationError(formatIssues(result.error), "Los parámetros de consulta no son válidos"));
+      return;
+    }
+    res.locals.query = result.data;
+    next();
+  };
+}
+
 function formatIssues(error: z.ZodError): Array<{ path: string; message: string; code: string }> {
   return error.issues.map((issue) => ({
     path: issue.path.join("."),

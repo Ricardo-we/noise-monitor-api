@@ -4,6 +4,16 @@ import type { Server } from "node:http";
 import { Pool } from "pg";
 import { validReading } from "../fixtures";
 import { auditNoiseReadings } from "../../scripts/lib/data-quality";
+import type { noiseReadingRepository } from "../../src/repositories/noise-reading.repository";
+
+type StoredReading = Awaited<ReturnType<typeof noiseReadingRepository.list>>["rows"][number];
+interface RecordsResponse {
+  data: Array<{
+    reading_id: string; timestamp: string; latitude: number; longitude: number;
+    student_id: string; domain_data: StoredReading["domainData"]; created_at: string;
+  }>;
+  pagination: { page: number; limit: number; total: number; total_pages: number; has_next: boolean; has_previous: boolean };
+}
 
 // Esta suite crea y vacía una tabla: solo se permite una BD local de pruebas.
 const testUrl = process.env.TEST_DB_URL;
@@ -50,6 +60,94 @@ function post(body: unknown) {
 function atDistance(meters: number) {
   return { ...validReading, latitude: 0, longitude: meters / 6371008.8 * 180 / Math.PI };
 }
+
+async function getRecords(query = ""): Promise<RecordsResponse> {
+  const response = await fetch(apiUrl.replace("/save-audio-record", `/records${query}`));
+  assert.equal(response.status, 200);
+  return await response.json() as RecordsResponse;
+}
+
+async function seedRecords(count: number) {
+  await pool.query(`INSERT INTO noise_readings
+    (reading_id, timestamp, latitude, longitude, student_id, auth_hash, domain_data, created_at)
+    SELECT ('00000000-0000-4000-8000-' || lpad(i::text, 12, '0'))::uuid,
+      CASE WHEN i <= 5 THEN '2026-10-10T18:00:00Z'::timestamptz ELSE '2026-10-09T18:00:00Z'::timestamptz END,
+      $2, $3, $4, $5, $6::jsonb, '2026-10-10T20:00:00Z'::timestamptz
+    FROM generate_series(1, $1::int) AS i`,
+  [count, validReading.latitude, validReading.longitude, validReading.student_id,
+    validReading.auth_hash, JSON.stringify(validReading.domain_data)]);
+}
+
+test("HU-30: tabla vacía y página fuera de rango devuelven 200 sin registros", async () => {
+  const empty = await getRecords();
+  assert.deepEqual(empty, { data: [], pagination: {
+    page: 1, limit: 20, total: 0, total_pages: 0, has_next: false, has_previous: false,
+  } });
+  assert.deepEqual((await getRecords("?page=3")).pagination, {
+    page: 3, limit: 20, total: 0, total_pages: 0, has_next: false, has_previous: false,
+  });
+  await seedRecords(3);
+  assert.deepEqual(await getRecords("?page=3&limit=2"), { data: [], pagination: {
+    page: 3, limit: 2, total: 3, total_pages: 2, has_next: false, has_previous: true,
+  } });
+});
+
+test("HU-30: devuelve la lectura recién guardada, fechas ISO y campos acordados sin auth_hash", async () => {
+  const savedResponse = await post(validReading);
+  assert.equal(savedResponse.status, 201);
+  const saved = await savedResponse.json() as { data: { reading_id: string; created_at: string } };
+  const body = await getRecords();
+  assert.deepEqual(body.data, [{
+    reading_id: saved.data.reading_id, timestamp: validReading.timestamp,
+    latitude: validReading.latitude, longitude: validReading.longitude,
+    student_id: validReading.student_id, domain_data: validReading.domain_data,
+    created_at: saved.data.created_at,
+  }]);
+  assert(!JSON.stringify(body).includes(validReading.auth_hash));
+  assert.deepEqual(body.pagination, { page: 1, limit: 20, total: 1, total_pages: 1, has_next: false, has_previous: false });
+});
+
+test("HU-30: recorre todas las páginas sin repetir ni perder filas con timestamps empatados", async () => {
+  await seedRecords(25);
+  const expectedIds = [5, 4, 3, 2, 1, ...Array.from({ length: 20 }, (_, i) => 25 - i)]
+    .map((i) => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`);
+  const actualIds: string[] = [];
+  for (let page = 1; page <= 4; page++) {
+    const body = await getRecords(`?page=${page}&limit=7`);
+    assert.equal(body.data.length, page === 4 ? 4 : 7);
+    assert.deepEqual(body.pagination, {
+      page, limit: 7, total: 25, total_pages: 4, has_next: page < 4, has_previous: page > 1,
+    });
+    actualIds.push(...body.data.map((row) => row.reading_id));
+  }
+  assert.deepEqual(actualIds, expectedIds);
+  assert.deepEqual((await getRecords("?page=2&limit=7")).data.map((row) => row.reading_id), expectedIds.slice(7, 14));
+});
+
+test("HU-30: aplica límite predeterminado 20, máximo 100 y página final parcial", async () => {
+  await seedRecords(103);
+  const defaults = await getRecords();
+  assert.equal(defaults.data.length, 20);
+  assert.equal(defaults.pagination.total_pages, 6);
+  const first = await getRecords("?limit=100");
+  assert.equal(first.data.length, 100);
+  assert.equal(first.pagination.total, 103);
+  assert.equal(first.pagination.total_pages, 2);
+  const last = await getRecords("?page=2&limit=100");
+  assert.equal(last.data.length, 3);
+  assert.equal(last.pagination.has_next, false);
+});
+
+test("HU-30: conserva JSON histórico incompleto o nulo y no modifica la BD", async () => {
+  await seedRecords(2);
+  await pool.query(`UPDATE noise_readings SET domain_data = CASE
+    WHEN reading_id::text LIKE '%000001' THEN '{"noise_avg_db":55}'::jsonb ELSE 'null'::jsonb END`);
+  const beforeRows = (await pool.query("SELECT * FROM noise_readings ORDER BY reading_id")).rows;
+  const body = await getRecords();
+  assert.deepEqual(body.data.map((row) => row.domain_data), [null, { noise_avg_db: 55 }]);
+  assert.equal(body.pagination.total, 2);
+  assert.deepEqual((await pool.query("SELECT * FROM noise_readings ORDER BY reading_id")).rows, beforeRows);
+});
 
 test("201: guarda y devuelve el contrato existente", async () => {
   const response = await post(validReading);

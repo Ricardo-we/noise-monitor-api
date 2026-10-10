@@ -1,6 +1,6 @@
 # noise_recopiler_api
 
-API REST mínima que recibe las lecturas de ruido del app móvil y las guarda en **Neon (PostgreSQL)** mediante **Prisma**.
+API REST que recibe las lecturas de ruido del app móvil, las guarda en **Neon (PostgreSQL)** y permite consultarlas por páginas mediante **Prisma**.
 El frontend ya no habla con la base de datos: solo consume esta API.
 
 - Node.js + TypeScript + Express 5
@@ -41,7 +41,7 @@ El servidor verifica la conexión con la base de datos al arrancar; si `DB_URL` 
 | `npm run build`        | Compila TypeScript a `dist/`                   |
 | `npm start`            | Ejecuta la build (`node dist/src/index.js`)    |
 | `npm run typecheck`    | Revisa tipos sin emitir archivos               |
-| `npm test`            | Pruebas del contrato de entrada                |
+| `npm test`            | Pruebas de validación y respuestas HTTP        |
 | `npm run test:integration` | Pruebas HTTP y PostgreSQL local (requiere `TEST_DB_URL`) |
 | `npm run data:quality` | Auditoría de solo lectura de `noise_readings` (HU-18) |
 | `npm run prisma:generate` | Regenera el cliente de Prisma               |
@@ -73,7 +73,92 @@ Flujo de una petición: `route → middleware validate (Zod) → controller → 
 
 ---
 
-## 3. Endpoint disponible
+## 3. Endpoints disponibles
+
+### `GET /api/records` — HU-30
+
+Devuelve las mediciones de `noise_readings` con paginación aplicada en la base de datos.
+
+```http
+GET /api/records?page=1&limit=20
+```
+
+| Parámetro | Predeterminado | Regla |
+| --- | --- | --- |
+| `page` | `1` | Entero positivo escrito en dígitos, sin ceros iniciales |
+| `limit` | `20` | Entero de `1` a `100`, sin ceros iniciales |
+
+Solo se admiten esos dos parámetros, una vez cada uno. Vacíos, decimales,
+valores negativos y parámetros desconocidos generan `400 VALIDATION_ERROR`.
+Como límite técnico, tanto `page` como `(page - 1) * limit` deben ser como máximo
+`2147483647`. Un `limit` superior a 100 se rechaza; no se reduce silenciosamente.
+
+**Ejemplo sintético de respuesta `200 OK`**
+
+```json
+{
+  "data": [
+    {
+      "reading_id": "00000000-0000-4000-8000-000000000001",
+      "timestamp": "2026-10-10T18:00:00.000Z",
+      "latitude": 14.6349,
+      "longitude": -90.5069,
+      "student_id": "test-student",
+      "domain_data": {
+        "metric": "avg",
+        "value_db": 62.4,
+        "noise_min_db": 48.1,
+        "noise_max_db": 78.9,
+        "noise_avg_db": 62.4,
+        "recording_duration_ms": 3000,
+        "device_model": "Test device",
+        "app_version": "1.0.0"
+      },
+      "created_at": "2026-10-10T20:00:00.000Z"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "total": 1,
+    "total_pages": 1,
+    "has_next": false,
+    "has_previous": false
+  }
+}
+```
+
+`total` cuenta toda la tabla; `total_pages = ceil(total / limit)`. El orden es
+`timestamp DESC, reading_id DESC`: primero las capturas más recientes, con
+desempate por identificador. Las fechas se entregan en ISO 8601 UTC (`Z`).
+`auth_hash` no se selecciona ni se devuelve. `domain_data` conserva el JSON
+almacenado, incluso si algún registro histórico está incompleto o contiene JSON nulo.
+
+Una tabla vacía devuelve `data: []`, `total: 0`, `total_pages: 0` y ambas banderas
+en `false`. Una página posterior a la última devuelve `200` con `data: []`,
+mantiene el número solicitado y conserva el total real. `has_previous` indica
+que hay registros y existe alguna página anterior; `has_next` indica que
+`page < total_pages`.
+
+La página y el conteo comparten una transacción `RepeatableRead`. Entre dos
+peticiones independientes pueden entrar o borrarse mediciones y desplazarse
+los registros de página. Este endpoint no representa una exportación congelada.
+
+Ejemplo para un consumidor:
+
+```ts
+const response = await fetch(`${API_URL}/api/records?page=1&limit=20`);
+if (!response.ok) throw new Error(`Error consultando mediciones: ${response.status}`);
+const { data, pagination } = await response.json();
+// Mostrar data y habilitar "Siguiente" según pagination.has_next.
+```
+
+El endpoint conserva el manejo global de errores de BD; una falla no devuelve
+una lista vacía exitosa. Los valores 20/100, el orden y los campos son decisiones
+propuestas para validación de Ricardo. La autenticación de consumidores de HU-11
+queda pendiente: esta ruta no verifica un token y devuelve carné y coordenadas.
+Antes de habilitar acceso público, el equipo debe aprobar los campos y el control
+de acceso. Ver [explicación, pasos y evidencia de HU-30](docs/HU30_CONSULTA_REGISTROS.md).
 
 ### `GET /api/health-check`
 
@@ -339,8 +424,9 @@ docker stop noise-monitor-hu08-test
 
 La suite de integración **vacía `noise_readings` antes de cada caso**.
 Solo acepta un host local y la base `noise_monitor_test`. No la apuntes a Neon.
-Comprueba guardado, radio, días y offsets, casos geográficos, concurrencia,
-errores de entrada y el detector de calidad con datos sintéticos corruptos.
+Comprueba consulta paginada (HU-30), guardado, radio, días y offsets, casos
+geográficos, concurrencia, errores de entrada y el detector de calidad con
+datos sintéticos corruptos.
 
 ## 8. HU-18: revisión de estructura y calidad de datos
 
