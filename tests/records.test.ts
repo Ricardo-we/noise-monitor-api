@@ -9,10 +9,12 @@ let repository: Repository;
 let originalList: Repository["list"];
 let disconnect: () => Promise<void>;
 let calls = 0;
+const testApiKey = "test-api-key";
 
 before(async () => {
   process.env.DB_URL = "postgresql://test:test@127.0.0.1:5432/test";
   process.env.NODE_ENV = "test";
+  process.env.API_KEY = testApiKey;
   const { createApp } = await import("../src/app/app.js");
   repository = (await import("../src/repositories/noise-reading.repository.js")).noiseReadingRepository;
   disconnect = (await import("../src/lib/prisma.js")).disconnectPrisma;
@@ -28,6 +30,10 @@ before(async () => {
   apiUrl = `http://127.0.0.1:${address.port}/api/records`;
 });
 
+function fetchRecords(url: string): Promise<Response> {
+  return fetch(url, { headers: { "x-api-key": testApiKey } });
+}
+
 after(async () => {
   if (repository) repository.list = originalList;
   if (server) await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
@@ -42,7 +48,7 @@ for (const query of [
 ]) {
   test(`GET records rechaza ${query} antes de consultar la BD`, async () => {
     const beforeCalls = calls;
-    const response = await fetch(`${apiUrl}?${query}`);
+    const response = await fetchRecords(`${apiUrl}?${query}`);
     assert.equal(response.status, 400);
     const body = await response.json() as { error: { code: string; message: string; details: unknown[] } };
     assert.equal(body.error.code, "VALIDATION_ERROR");
@@ -54,7 +60,7 @@ for (const query of [
 
 test("GET records devuelve error 503 de conexión; no lo disfraza de página vacía", async () => {
   repository.list = async () => { throw Object.assign(new Error("test connection failure"), { code: "P1001" }); };
-  const response = await fetch(apiUrl);
+  const response = await fetchRecords(apiUrl);
   assert.equal(response.status, 503);
   const body = await response.json() as { error: { code: string }; data?: unknown };
   assert.equal(body.error.code, "DB_UNAVAILABLE");
