@@ -16,6 +16,11 @@ export interface CreateNoiseReadingInput {
   domainData: NoiseDomainData;
 }
 
+export interface ListNoiseReadingsInput {
+  page: number;
+  limit: number;
+}
+
 export const noiseReadingRepository = {
   /** HU-08: verifica cercanía y guarda en una misma transacción. */
   async create(input: CreateNoiseReadingInput) {
@@ -71,6 +76,29 @@ export const noiseReadingRepository = {
         },
       });
     }, { isolationLevel: "ReadCommitted" });
+  },
+
+  /** HU-30: página y total corresponden a la misma instantánea de la BD. */
+  async list({ page, limit }: ListNoiseReadingsInput) {
+    const [rows, total] = await prisma.$transaction([
+      prisma.noiseReading.findMany({
+        skip: (page - 1) * limit,
+        take: limit,
+        // La clave única desempata mediciones con el mismo timestamp.
+        orderBy: [{ timestamp: "desc" }, { readingId: "desc" }],
+        select: {
+          readingId: true,
+          timestamp: true,
+          latitude: true,
+          longitude: true,
+          studentId: true,
+          domainData: true,
+          createdAt: true,
+        },
+      }),
+      prisma.noiseReading.count(),
+    ], { isolationLevel: "RepeatableRead" });
+    return { rows, total };
   },
 
   /** Comprueba que la base de datos responde. */

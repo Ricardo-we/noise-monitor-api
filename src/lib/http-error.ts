@@ -17,8 +17,14 @@ export class AppError extends Error {
 }
 
 export class ValidationError extends AppError {
-  constructor(details: unknown) {
-    super(400, "VALIDATION_ERROR", "El cuerpo de la petición no es válido", details);
+  constructor(details: unknown, message = "El cuerpo de la petición no es válido") {
+    super(400, "VALIDATION_ERROR", message, details);
+  }
+}
+
+export class UnauthorizedError extends AppError {
+  constructor(message = "No autorizado") {
+    super(401, "UNAUTHORIZED", message);
   }
 }
 

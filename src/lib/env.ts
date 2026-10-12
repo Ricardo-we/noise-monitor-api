@@ -10,6 +10,8 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65_535).default(3000),
   HOST: z.string().min(1).default("0.0.0.0"),
   DB_URL: z.string().min(1, "DB_URL es obligatoria (cadena de conexión de Neon)"),
+  /** Si está definida, las rutas protegidas exigen el header `x-api-key`. */
+  API_KEY: z.string().min(1).optional(),
   CORS_ORIGIN: z.string().default("*"),
   MEASUREMENT_TIME_ZONE: z.string().default("America/Guatemala").refine((value) => {
     try {

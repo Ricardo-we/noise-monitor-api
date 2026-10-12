@@ -6,3 +6,4 @@ dist/
 src/generated/
 npm-debug.log*
 reports/
+requests/
