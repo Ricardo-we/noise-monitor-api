@@ -22,6 +22,12 @@ export class ValidationError extends AppError {
   }
 }
 
+export class UnauthorizedError extends AppError {
+  constructor(message = "No autorizado") {
+    super(401, "UNAUTHORIZED", message);
+  }
+}
+
 export class NotFoundError extends AppError {
   constructor(message = "Recurso no encontrado") {
     super(404, "NOT_FOUND", message);
