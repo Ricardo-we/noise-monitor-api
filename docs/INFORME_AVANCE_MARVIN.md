@@ -1,5 +1,9 @@
 # Avance de tareas de Marvin - Grupo 1
 
+> Informe histórico del 5–6/10/2026. Conserva el estado de esa entrega. Para el
+> contrato y acceso vigentes, consultar el [índice actual](README.md) y la
+> [trazabilidad](12-trazabilidad/README.md), actualizados al 17/10/2026.
+
 Fecha de trabajo: 5 y 6 de octubre de 2026, Guatemala.
 Proyecto: monitoreo de ruido urbano. Responsable: Marvin Danilo Culajay.
 Repositorio: https://github.com/Ricardo-we/noise-monitor-api

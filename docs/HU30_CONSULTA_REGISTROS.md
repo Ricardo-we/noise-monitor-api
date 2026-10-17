@@ -1,5 +1,11 @@
 # HU-30: consulta de mediciones con paginación
 
+> Entrega histórica del 10/10/2026. Ricardo integró el PR #2 el 12/10/2026 junto
+> con autenticación por API key. Las referencias siguientes a «sin autenticación»
+> o «pendiente de integración» corresponden a esa versión inicial. El contrato
+> vigente está en [consulta de registros](04-api/consultar-registros/README.md),
+> [seguridad](07-seguridad/README.md) y [trazabilidad](12-trazabilidad/README.md).
+
 Fecha: 10 de octubre de 2026. Responsable de esta entrega: Marvin Danilo Culajay Morejón.
 Rama: `feat/marvin-hu30-records`. Base revisada: `main`, commit `2a6ce54`.
 Estado: implementación y pruebas completadas; pendiente de validación e integración por Ricardo.
@@ -65,7 +71,7 @@ HU-30 exige paginación, pero no fija estos detalles. Son criterios de la implem
 Se admiten enteros escritos como `1`, `2`, `20`. No se admiten `01`, espacios,
 decimales, notación científica ni valores vacíos. Un `limit=101` se rechaza con
 400, en lugar de cambiarlo silenciosamente. Los ejemplos completos de JSON están
-en el [README](../README.md#3-endpoints-disponibles).
+en el [README](04-api/README.md).
 
 ## 5. Cómo funciona por dentro
 
@@ -121,7 +127,7 @@ página, páginas fuera de rango, JSON incompleto o nulo, exclusión de `auth_ha
 conservación de filas y rechazo de consultas inválidas. También siguen pasando
 las pruebas de guardado, HU-08, HU-18 y health-check.
 
-Para reproducirlas, seguir la [sección de pruebas del README](../README.md#7-pruebas-reproducibles).
+Para reproducirlas, seguir la [sección de pruebas del README](08-pruebas/README.md).
 Las pruebas de integración crean y vacían una tabla exclusivamente en la base
 local descartable `noise_monitor_test`. La comprobación en Neon fue de lectura;
 no se hicieron inserciones, correcciones, migraciones ni cambios de esquema allí.

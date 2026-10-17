@@ -1,459 +1,181 @@
-# noise_recopiler_api
+# Noise Monitor API · Grupo 1
 
-API REST que recibe las lecturas de ruido del app móvil, las guarda en **Neon (PostgreSQL)** y permite consultarlas por páginas mediante **Prisma**.
-El frontend ya no habla con la base de datos: solo consume esta API.
+Backend REST para recibir, validar, guardar y consultar mediciones de ruido.
+La aplicación móvil calcula las métricas; esta API recibe JSON y usa PostgreSQL
+mediante Prisma. El repositorio no incluye el frontend ni almacena archivos de audio.
 
-- Node.js + TypeScript + Express 5
-- Prisma 7 con driver adapter `@prisma/adapter-pg`
-- Validación de entrada con Zod
-- Logger en formato JSON, sin dependencias extra
+**Documentación revisada:** 17 de octubre de 2026, sobre `main` en `b33ded9`.
+**Paquete:** `noise_recopiler_api` · **Versión declarada:** `1.0.0`.
 
----
+[Documentación completa](docs/README.md) · [Instalación](docs/01-instalacion/README.md) · [Referencia HTTP](docs/04-api/README.md) · [OpenAPI](docs/04-api/openapi.yaml) · [Pruebas](docs/08-pruebas/README.md)
 
-## 1. Puesta en marcha
+## Qué resuelve
+
+| Capacidad | Comportamiento actual |
+| --- | --- |
+| Guardar una medición | Valida coordenadas, timestamp, carné, hash recibido y métricas; responde con el identificador de la fila. |
+| Prevenir mediciones cercanas, HU-08 | Rechaza otra lectura a **50 metros o menos** en el mismo día local, considerando a todos los estudiantes. |
+| Consultar datos, HU-30 | Devuelve páginas de **20** por defecto, hasta **100** por solicitud, con total y navegación. |
+| Controlar consumidores | Exige encabezado **`x-api-key` si `API_KEY` está definida** en el servidor. |
+| Comprobar conexión | Health-check público ejecuta un ping contra la BD. |
+| Revisar calidad, HU-18 | Script de solo lectura inspecciona estructura y genera conteos de anomalías. |
+
+La API key no verifica la identidad del estudiante. `auth_hash` se almacena sin
+comprobar su autenticidad; no sustituye la clave de acceso. Los datos históricos
+se devuelven como están almacenados y pueden requerir revisión de calidad.
+
+## Inicio rápido
+
+### Requisitos
+
+Git, npm, una versión de Node compatible y acceso autorizado a una base PostgreSQL
+con `public.noise_readings` ya preparada. Prisma 7.10 requiere
+**`^20.19 || ^22.12 || >=24.0`**, aunque el paquete raíz declare `>=20`.
+Docker solo se necesita para las pruebas de integración locales.
+
+### Instalar y arrancar
 
 ```bash
-npm install
-cp .env.example .env      # en Windows: copy .env.example .env
+git clone https://github.com/Ricardo-we/noise-monitor-api.git
+cd noise-monitor-api
+npm ci
+cp .env.example .env
 ```
 
-Edita `.env` y pega la cadena de conexión de Neon **con usuario y contraseña**:
-
-```env
-DB_URL="postgresql://USER:PASSWORD@ep-xxxx-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require"
-```
-
-> En Neon usa el host con `-pooler` para la API (connection pooler) y el host **sin** `-pooler` para migraciones.
-> `?sslmode=require` es obligatorio en Neon; la API lo añade solo si falta (ver `src/lib/db-url.ts`).
-
-Genera el cliente de Prisma y arranca:
+En PowerShell, el último comando es `Copy-Item .env.example .env`.
+Si ya existe `.env`, conservá sus valores. Completá `DB_URL` con la conexión
+autorizada y reemplazá el marcador `API_KEY` por la clave del entorno.
 
 ```bash
 npm run prisma:generate
+npm run typecheck
 npm run dev
 ```
 
-El servidor verifica la conexión con la base de datos al arrancar; si `DB_URL` falla, la API no levanta y lo indica en el log.
+El arranque valida variables, conecta a la BD y ejecuta un ping antes de abrir
+HTTP. Generar Prisma **no crea tablas ni aplica migraciones**. La preparación
+de una base nueva y los cambios de esquema requieren el procedimiento del equipo.
 
-| Script                 | Descripción                                    |
-| ---------------------- | ---------------------------------------------- |
-| `npm run dev`          | Desarrollo con recarga (`tsx watch`)           |
-| `npm run build`        | Compila TypeScript a `dist/`                   |
-| `npm start`            | Ejecuta la build (`node dist/src/index.js`)    |
-| `npm run typecheck`    | Revisa tipos sin emitir archivos               |
-| `npm test`            | Pruebas de validación y respuestas HTTP        |
-| `npm run test:integration` | Pruebas HTTP y PostgreSQL local (requiere `TEST_DB_URL`) |
-| `npm run data:quality` | Auditoría de solo lectura de `noise_readings` (HU-18) |
-| `npm run prisma:generate` | Regenera el cliente de Prisma               |
-| `npm run prisma:studio`   | Abre Prisma Studio contra la BD              |
+### Comprobar disponibilidad y lectura
 
----
-
-## 2. Estructura del proyecto
-
+```bash
+curl -i http://localhost:3000/api/health-check
 ```
-.
-├── prisma.config.ts            # Configuración del CLI de Prisma (lee DB_URL)
-├── prisma/schema.prisma        # Modelo de la tabla noise_readings
-├── src/
-│   ├── index.ts                # Arranque, verificación de BD y apagado ordenado
-│   ├── app/
-│   │   ├── app.ts              # Construcción de la app Express (middlewares)
-│   │   ├── routes/             # Rutas HTTP agrupadas bajo /api
-│   │   ├── controllers/        # Lógica de cada endpoint
-│   │   ├── schemas/            # Esquemas Zod (validación + tipos)
-│   │   └── middlewares/        # validate, request-logger, not-found, error-handler
-│   ├── lib/                    # env, prisma (conexión), logger, http-error
-│   ├── repositories/           # Acceso a datos (única capa que usa Prisma)
-│   └── types/                  # Tipos de dominio compartidos con el frontend
-└── .env                        # Variables de entorno (no se versiona)
-```
-
-Flujo de una petición: `route → middleware validate (Zod) → controller → repository → Prisma → Neon`.
-
----
-
-## 3. Endpoints disponibles
-
-### `GET /api/records` — HU-30
-
-Devuelve las mediciones de `noise_readings` con paginación aplicada en la base de datos.
-
-```http
-GET /api/records?page=1&limit=20
-```
-
-| Parámetro | Predeterminado | Regla |
-| --- | --- | --- |
-| `page` | `1` | Entero positivo escrito en dígitos, sin ceros iniciales |
-| `limit` | `20` | Entero de `1` a `100`, sin ceros iniciales |
-
-Solo se admiten esos dos parámetros, una vez cada uno. Vacíos, decimales,
-valores negativos y parámetros desconocidos generan `400 VALIDATION_ERROR`.
-Como límite técnico, tanto `page` como `(page - 1) * limit` deben ser como máximo
-`2147483647`. Un `limit` superior a 100 se rechaza; no se reduce silenciosamente.
-
-**Ejemplo sintético de respuesta `200 OK`**
-
-```json
-{
-  "data": [
-    {
-      "reading_id": "00000000-0000-4000-8000-000000000001",
-      "timestamp": "2026-10-10T18:00:00.000Z",
-      "latitude": 14.6349,
-      "longitude": -90.5069,
-      "student_id": "test-student",
-      "domain_data": {
-        "metric": "avg",
-        "value_db": 62.4,
-        "noise_min_db": 48.1,
-        "noise_max_db": 78.9,
-        "noise_avg_db": 62.4,
-        "recording_duration_ms": 3000,
-        "device_model": "Test device",
-        "app_version": "1.0.0"
-      },
-      "created_at": "2026-10-10T20:00:00.000Z"
-    }
-  ],
-  "pagination": {
-    "page": 1,
-    "limit": 20,
-    "total": 1,
-    "total_pages": 1,
-    "has_next": false,
-    "has_previous": false
-  }
-}
-```
-
-`total` cuenta toda la tabla; `total_pages = ceil(total / limit)`. El orden es
-`timestamp DESC, reading_id DESC`: primero las capturas más recientes, con
-desempate por identificador. Las fechas se entregan en ISO 8601 UTC (`Z`).
-`auth_hash` no se selecciona ni se devuelve. `domain_data` conserva el JSON
-almacenado, incluso si algún registro histórico está incompleto o contiene JSON nulo.
-
-Una tabla vacía devuelve `data: []`, `total: 0`, `total_pages: 0` y ambas banderas
-en `false`. Una página posterior a la última devuelve `200` con `data: []`,
-mantiene el número solicitado y conserva el total real. `has_previous` indica
-que hay registros y existe alguna página anterior; `has_next` indica que
-`page < total_pages`.
-
-La página y el conteo comparten una transacción `RepeatableRead`. Entre dos
-peticiones independientes pueden entrar o borrarse mediciones y desplazarse
-los registros de página. Este endpoint no representa una exportación congelada.
-
-Ejemplo para un consumidor:
-
-```ts
-const response = await fetch(`${API_URL}/api/records?page=1&limit=20`);
-if (!response.ok) throw new Error(`Error consultando mediciones: ${response.status}`);
-const { data, pagination } = await response.json();
-// Mostrar data y habilitar "Siguiente" según pagination.has_next.
-```
-
-El endpoint conserva el manejo global de errores de BD; una falla no devuelve
-una lista vacía exitosa. Los valores 20/100, el orden y los campos son decisiones
-propuestas para validación de Ricardo. La autenticación de consumidores de HU-11
-queda pendiente: esta ruta no verifica un token y devuelve carné y coordenadas.
-Antes de habilitar acceso público, el equipo debe aprobar los campos y el control
-de acceso. Ver [explicación, pasos y evidencia de HU-30](docs/HU30_CONSULTA_REGISTROS.md).
-
-### `GET /api/health-check`
-
-Comprueba que la API responde y que la base de datos está accesible.
-
-**Respuesta `200 OK`**
 
 ```json
 { "status": "ok", "database": "ok" }
 ```
 
-Si no se puede consultar la base de datos, responde `503 Service Unavailable`:
+Para consultar, definí en la terminal del cliente `NOISE_API_KEY` con la clave
+que el servidor tiene como `API_KEY`, y ejecutá:
 
-```json
-{ "status": "error", "database": "unavailable" }
+```bash
+curl -i 'http://localhost:3000/api/records?page=1&limit=2' \
+  -H "x-api-key: ${NOISE_API_KEY}"
 ```
 
-### `POST /api/save-audio-record`
+`NOISE_API_KEY` es solo una variable de los ejemplos del cliente; no la lee la
+API. `.env` no se carga automáticamente en la terminal de curl.
+El recorrido completo, incluidos Windows y resolución de fallos, está en
+[instalación](docs/01-instalacion/README.md).
 
-Guarda una lectura de ruido. La tabla ya existe en Neon (ver [sección 4](#4-tabla-en-neon)).
+## Endpoints
 
-**Request**
+Base local: `http://localhost:3000`. No se afirma una URL pública de despliegue.
 
-```http
-POST /api/save-audio-record
-Content-Type: application/json
-```
+| Método | Ruta | Resultado habitual | Documentación |
+| --- | --- | --- | --- |
+| GET | `/api/health-check` | 200 con estado API/BD; 503 si falla el ping. | [Estado del servicio](docs/04-api/estado-servicio/README.md). |
+| POST | `/api/save-audio-record` | 201 con resumen; 409 si ya hay lectura cercana ese día. | [Guardar medición](docs/04-api/guardar-medicion/README.md). |
+| GET | `/api/records?page=1&limit=20` | 200 con `data` y `pagination`. | [Consultar registros](docs/04-api/consultar-registros/README.md). |
 
-```json
-{
-  "timestamp": "2026-09-27T14:32:10.512Z",
-  "latitude": 19.4326,
-  "longitude": -99.1332,
-  "student_id": "student-001",
-  "auth_hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
-  "domain_data": {
-    "metric": "avg",
-    "value_db": 62.4,
-    "noise_min_db": 48.1,
-    "noise_max_db": 78.9,
-    "noise_avg_db": 62.4,
-    "recording_duration_ms": 3000,
-    "device_model": "Pixel 8",
-    "app_version": "1.0.0"
-  }
-}
-```
+POST de guardado y GET de registros usan `x-api-key` cuando está configurada.
+Si `API_KEY` está **ausente**, esas rutas permiten acceso sin clave. Si está
+**vacía**, falla el arranque. El health-check permanece público.
+El contrato completo incluye campos, ejemplos, errores y límites en
+[referencia HTTP](docs/04-api/README.md) y [openapi.yaml](docs/04-api/openapi.yaml).
+No hay una ruta `/docs` o Swagger UI servida por Express: `/docs` es una carpeta del repositorio.
 
-**Response `201 Created`**
+## Configuración esencial
 
-```json
-{
-  "data": {
-    "reading_id": "0f1b0f0e-2a52-4b1e-9a2c-1f0f0c8b7a11",
-    "student_id": "student-001",
-    "metric": "avg",
-    "value_db": 62.4,
-    "created_at": "2026-09-27T14:32:10.780Z"
-  }
-}
-```
-
-#### Reglas de validación
-
-| Campo                     | Regla                                                              |
-| ------------------------- | ------------------------------------------------------------------ |
-| `timestamp`               | Fecha ISO 8601 con offset (`2026-09-27T14:32:10.512Z`)            |
-| `latitude`                | `-90` a `90`                                                       |
-| `longitude`               | `-180` a `180`                                                     |
-| `student_id`              | Texto, 1 a 50 caracteres                                            |
-| `auth_hash`               | Texto, 1 a 64 caracteres                                            |
-| `domain_data.metric`      | `min` \| `max` \| `avg`                                             |
-| `domain_data.*_db`        | Número entre `-160` y `150` dB (cubre dB SPL y dBFS)                |
-| `domain_data.value_db`    | Convención del cliente: debe ser el valor de la métrica indicada (no se valida) |
-| `recording_duration_ms`   | Entero `1` a `300000`                                               |
-| `device_model`            | Texto, 1 a 120 caracteres                                            |
-| `app_version`             | Texto, 1 a 40 caracteres                                             |
-
-El objeto es **estricto**: cualquier clave desconocida (en la raíz o en `domain_data`) se rechaza con `400`.
-
-#### Errores
-
-Todos los errores usan la misma forma:
-
-```json
-{
-  "error": {
-    "code": "VALIDATION_ERROR",
-    "message": "El cuerpo de la petición no es válido",
-    "details": [
-      { "path": "domain_data.metric", "message": "Invalid option: expected one of \"min\"|\"max\"|\"avg\"", "code": "invalid_value" }
-    ]
-  }
-}
-```
-
-| Código HTTP | `error.code`        | Cuándo ocurre                                        |
-| ----------- | ------------------- | ---------------------------------------------------- |
-| `400`       | `VALIDATION_ERROR`  | El body no cumple el esquema                          |
-| `400`       | `INVALID_JSON`      | El body no es JSON válido                            |
-| `404`       | `NOT_FOUND`         | La ruta no existe                                     |
-| `409`       | `DUPLICATE_RESOURCE`| Violación de clave única (Prisma `P2002`)             |
-| `409`       | `NEARBY_READING_EXISTS` | Hay otra medición a 50 m o menos en el mismo día local (HU-08) |
-| `400`       | `FOREIGN_KEY_ERROR` | Clave foránea inválida (Prisma `P2003`)               |
-| `500`       | `INTERNAL_ERROR`    | Error no previsto (en desarrollo incluye el detalle)  |
-| `503`       | `DB_UNAVAILABLE`    | La base de datos no responde (Prisma `P1001`)          |
-
-El mapeo completo de códigos de Prisma a códigos HTTP vive en `src/app/middlewares/error-handler.ts`.
-
-### HU-08: radio de 50 metros
-
-Antes de insertar, la API busca **cualquier medición** del mismo día calendario
-a una distancia **menor o igual a 50 metros**. Usa `timestamp` de la captura,
-no `created_at`, y la zona `MEASUREMENT_TIME_ZONE` (por defecto `America/Guatemala`).
-Los timestamps conservan su instante y se almacenan como `TIMESTAMPTZ`.
-La distancia se calcula con Haversine y radio terrestre medio de 6 371 008,8 m;
-no hace falta instalar PostGIS.
-
-| Caso | Respuesta |
+| Variable | Uso |
 | --- | --- |
-| Primera medición en la zona y el día | `201` |
-| Otra a 49,99 m o exactamente 50 m ese día | `409` |
-| Otra a 50,01 m ese día | `201` |
-| Misma ubicación en un día local distinto | `201` |
-| Otro estudiante mide dentro del radio ese día | `409` |
+| `DB_URL` | Conexión PostgreSQL, obligatoria. La API no usa `DATABASE_URL`. |
+| `API_KEY` | Clave exigida a consumidores de las rutas protegidas si se define. |
+| `PORT`, `HOST` | Predeterminados `3000` y `0.0.0.0`. |
+| `NODE_ENV` | `development`, `production` o `test`; predeterminado development. |
+| `CORS_ORIGIN` | `*` o lista de orígenes separados por comas. |
+| `MEASUREMENT_TIME_ZONE` | Día calendario de HU-08; predeterminado `America/Guatemala`. |
+| `LOG_LEVEL` | Nivel del logger propio; predeterminado `info`. |
 
-```json
-{
-  "error": {
-    "code": "NEARBY_READING_EXISTS",
-    "message": "Ya existe una medición a 50 metros o menos en el mismo día"
-  }
-}
+Ver [configuración detallada](docs/02-configuracion/README.md) para validación,
+prioridades, TLS y diferencias entre variables del servidor y de pruebas.
+
+## Estructura
+
+```text
+noise-monitor-api/
+├── README.md                 # Entrada al proyecto
+├── docs/                     # Índice, guías, OpenAPI, ejemplos e informes
+├── src/
+│   ├── index.ts              # Arranque y cierre
+│   ├── app/                  # Rutas, controladores, middlewares y esquemas
+│   ├── repositories/         # Consultas y transacciones de la API
+│   ├── lib/                  # Entorno, Prisma, errores y logger
+│   └── types/                # Tipos compartidos del dominio
+├── prisma/schema.prisma      # Modelo de noise_readings
+├── prisma.config.ts          # Configuración del CLI
+├── scripts/                  # Auditoría HU-18
+├── tests/                    # Validación, HTTP e integración PostgreSQL
+├── .env.example              # Plantilla sin credenciales reales
+└── package-lock.json         # Versiones de dependencias
 ```
 
-Esta interpretación sigue la prevención de duplicados de HU-08 en el plan.
-El alcance global, el límite inclusivo y la zona horaria son decisiones de esta
-implementación para revisión del PM. Una referencia anterior del equipo hablaba
-del último registro del día; esa interpretación produciría resultados distintos.
+Flujo: **ruta → API key → validación → controlador → repositorio → Prisma → PostgreSQL**.
+La [arquitectura](docs/03-arquitectura/README.md) explica las diferencias entre
+los flujos de guardado, consulta y health-check.
 
-La búsqueda y la inserción se ejecutan en una transacción con bloqueo por día
-y aislamiento `ReadCommitted`. La búsqueda ocurre **después** de adquirir el
-bloqueo, en otra consulta, para detectar una inserción concurrente ya confirmada.
-Todos los escritores deben usar este flujo y la misma zona horaria: una escritura
-directa desde otro cliente no participa del bloqueo.
+## Comandos habituales
 
-El bloqueo serializa los guardados de un día. Es adecuado para este prototipo;
-si aumenta mucho el volumen, habrá que medir tiempos y revisar la estrategia.
-La búsqueda filtra por un intervalo de timestamp, por lo que un índice en ese
-campo puede ayudar. No se modifica automáticamente la tabla existente.
+| Comando | Función |
+| --- | --- |
+| `npm run dev` | Desarrollo con recarga. |
+| `npm run prisma:generate` | Generar el cliente Prisma local. |
+| `npm run typecheck` | Revisar tipos sin emitir archivos. |
+| `npm test` | Pruebas de esquemas y HTTP con repositorio sustituido. |
+| `npm run test:integration` | HTTP y PostgreSQL local descartable; requiere preparación e aislamiento de entorno. |
+| `npm run build` | Compilar a dist. |
+| `npm start` | Ejecutar `dist/src/index.js`. |
+| `npm run data:quality` | Auditar la BD configurada, en solo lectura; guarda reporte local. |
+| `npm run prisma:studio` | Abrir explorador Prisma, con capacidad de editar datos. |
+| `npm run prisma:migrate` | Herramienta de migración de desarrollo; requiere plan y entorno adecuado. |
+| `npm run prisma:deploy` | Aplicar migraciones versionadas aprobadas; no hay historial inicial incluido. |
 
----
+El comando de integración no debe apuntar a Neon. La suite vacía su tabla local
+antes de cada caso. Seguí la [guía reproducible de pruebas](docs/08-pruebas/README.md).
 
-## 4. Tabla en Neon
+## Seguridad y límites conocidos
 
-`prisma/schema.prisma` refleja exactamente el DDL ya creado en Neon:
+Se usan Helmet, validación estricta, consultas parametrizadas, límite de JSON y
+API key configurable. GET no selecciona la columna `auth_hash`; sí entrega carné,
+coordenadas y el JSON almacenado. CORS no sustituye autenticación.
 
-```sql
-CREATE TABLE noise_readings (
-    reading_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    timestamp TIMESTAMPTZ NOT NULL,
-    latitude DOUBLE PRECISION NOT NULL,
-    longitude DOUBLE PRECISION NOT NULL,
-    student_id VARCHAR(50) NOT NULL,
-    auth_hash VARCHAR(64) NOT NULL,
-    domain_data JSONB NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-```
+No hay identidad por estudiante, roles, rate limiting ni HTTPS gestionado por
+Node. La precisión acústica y escala de dB deben acordarse con el cliente.
+Las páginas pueden desplazarse si cambia la tabla entre peticiones.
+Más detalles: [seguridad](docs/07-seguridad/README.md),
+[reglas y calidad](docs/06-reglas-y-calidad/README.md) y
+[operación](docs/09-operacion/README.md).
 
-Como la tabla **ya existe y la gestiona el frontend**, no se ejecutan migraciones automáticas al arrancar.
-Si necesitas migrar el esquema con Prisma en el futuro:
+## Contribuir y revisar
 
-```bash
-npx prisma migrate dev --name descripcion_del_cambio
-```
+Trabajá en una rama, verificá el cambio y publicá un pull request para revisión
+de Ricardo antes de integrar. No subir `.env`, claves, reportes privados ni datos
+individuales de la BD. Ver [flujo de contribución](docs/10-contribucion/README.md).
 
-**Índices recomendados** cuando empiece a haber suficientes lecturas (no incluidos en el modelo para no generar drift):
+Los informes anteriores se conservan como evidencia fechada; el índice distingue
+esas entregas del contrato vigente. Consultá [trazabilidad](docs/12-trazabilidad/README.md)
+para referencias y verificación de esta edición.
 
-```sql
-CREATE INDEX IF NOT EXISTS noise_readings_student_timestamp_idx
-    ON noise_readings (student_id, timestamp DESC);
-```
-
----
-
-## 5. Uso desde el frontend
-
-```ts
-const response = await fetch(`${API_URL}/api/save-audio-record`, {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    timestamp: new Date().toISOString(),
-    latitude,
-    longitude,
-    student_id: studentId,
-    auth_hash: hash,
-    domain_data: {
-      metric: "avg",
-      value_db: metrics.avgDb,
-      noise_min_db: metrics.minDb,
-      noise_max_db: metrics.maxDb,
-      noise_avg_db: metrics.avgDb,
-      recording_duration_ms: metrics.durationMs,
-      device_model: "Pixel 8",
-      app_version: "1.0.0",
-    },
-  }),
-});
-
-if (response.status === 201) {
-  const { data } = await response.json();
-  console.log("guardado", data.reading_id);
-}
-```
-
-`AudioMetrics` (camelCase del frontend) se convierte aquí a `domain_data` (snake_case para la BD).
-
-### CORS
-
-`CORS_ORIGIN` acepta `*` o una lista separada por comas:
-
-```env
-CORS_ORIGIN="https://mi-frontend.com,https://otro.com"
-```
-
----
-
-## 6. Notas sobre seguridad
-
-- `auth_hash` llega sin verificar: la API solo lo persiste. Si más adelante quieres autenticación real,
-  añade un middleware que valide `student_id` + `auth_hash` contra tu tabla de estudiantes.
-- El pool de conexiones lo gestiona `@prisma/adapter-pg` a través del connection pooler de Neon;
-  no es necesario añadir `pgbouncer` por tu cuenta.
-
-## 7. Pruebas reproducibles
-
-```bash
-npm ci
-DB_URL='postgresql://noise_test:noise_test@127.0.0.1:55432/noise_monitor_test?sslmode=disable' npm run prisma:generate
-npm run typecheck
-npm test
-npm run build
-```
-
-Para las pruebas contra PostgreSQL real, inicia Docker Desktop y crea una base
-local descartable. Las credenciales siguientes son únicamente de prueba:
-
-```bash
-docker run --detach --rm --name noise-monitor-hu08-test \
-  -e POSTGRES_USER=noise_test -e POSTGRES_PASSWORD=noise_test \
-  -e POSTGRES_DB=noise_monitor_test -p 127.0.0.1:55432:5432 postgres:17-alpine
-
-# Espera a que responda con "accepting connections".
-docker exec noise-monitor-hu08-test pg_isready -U noise_test -d noise_monitor_test
-
-TEST_DB_URL='postgresql://noise_test:noise_test@127.0.0.1:55432/noise_monitor_test?sslmode=disable' npm run test:integration
-
-# Elimina exclusivamente el contenedor descartable de esta prueba.
-docker stop noise-monitor-hu08-test
-```
-
-La suite de integración **vacía `noise_readings` antes de cada caso**.
-Solo acepta un host local y la base `noise_monitor_test`. No la apuntes a Neon.
-Comprueba consulta paginada (HU-30), guardado, radio, días y offsets, casos
-geográficos, concurrencia, errores de entrada y el detector de calidad con
-datos sintéticos corruptos.
-
-## 8. HU-18: revisión de estructura y calidad de datos
-
-Configura la conexión real del equipo en `.env`, que está excluido de Git.
-No sustituyas esta conexión por la base de otro ejercicio. Luego ejecuta:
-
-```bash
-npm run data:quality
-```
-
-El informe JSON se guarda en `reports/`, también excluido de Git. Revisa columnas,
-tipos, nulos permitidos, valores predeterminados, restricciones e índices, y cuenta:
-
-- Nulos en campos obligatorios y coordenadas inválidas.
-- Carnés vacíos o de longitud incorrecta; hashes que no tienen formato SHA-256.
-- JSON incompleto o con tipos incorrectos.
-- dB fuera del rango vigente `[-160, 150]` y duración fuera de `1..300000` ms.
-- Inconsistencia de mínimo, promedio y máximo, y diferencia entre `value_db` y su métrica.
-- Pares de mediciones a 50 m o menos en el mismo día local, sin filtrar por estudiante.
-
-La tolerancia de comparación de métricas es `0.000001` dB, un criterio técnico
-del auditor. Los problemas pueden solaparse y los pares no son un conteo de
-filas duplicadas. Un hash con formato correcto no acredita que sea auténtico.
-La auditoría usa una transacción **READ ONLY** y no borra ni corrige datos.
-La búsqueda de pares tiene un límite de ejecución de 60 segundos; si el volumen
-lo supera, la auditoría falla explícitamente y debe programarse una revisión por lotes.
-
-Las solicitudes rechazadas no se almacenan en la tabla actual. Para ese criterio,
-se necesita revisar los logs con el responsable de despliegue. El resultado local
-de pruebas no acredita calidad ni estructura de la instancia real de Neon.
+El campo `license` de `package.json` declara `ISC`; la base revisada no contiene
+un archivo LICENSE independiente. Esta documentación no agrega ni modifica términos de licencia.

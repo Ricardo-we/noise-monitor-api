@@ -1,0 +1,120 @@
+{
+  "checked_at": "2026-10-17T15:36:46.504Z",
+  "base_commit": "b33ded967d0c4c2c69dd3b68dd4617171c09c47e",
+  "node": "v26.5.0",
+  "markdown_files": 20,
+  "local_links_checked": 135,
+  "json_examples_parsed": 12,
+  "openapi": {
+    "version": "3.0.3",
+    "paths": [
+      "/api/health-check",
+      "/api/save-audio-record",
+      "/api/records"
+    ],
+    "schemas": 10,
+    "validation": "passed"
+  },
+  "http_checks": [
+    {
+      "check": "Health-check público",
+      "status": 200,
+      "contract": "HealthOk"
+    },
+    {
+      "check": "GET sin API key",
+      "status": 401,
+      "contract": "ErrorResponse"
+    },
+    {
+      "check": "GET con API key incorrecta",
+      "status": 401,
+      "contract": "ErrorResponse"
+    },
+    {
+      "check": "GET con API key válida y tabla vacía",
+      "status": 200,
+      "contract": "RecordsResponse"
+    },
+    {
+      "check": "POST sin API key",
+      "status": 401,
+      "contract": "ErrorResponse"
+    },
+    {
+      "check": "POST del ejemplo documental",
+      "status": 201,
+      "contract": "SaveAudioRecordResponse"
+    },
+    {
+      "check": "GET del ejemplo guardado",
+      "status": 200,
+      "contract": "RecordsResponse"
+    },
+    {
+      "check": "POST repetido cercano",
+      "status": 409,
+      "contract": "ErrorResponse"
+    },
+    {
+      "check": "POST con latitud inválida",
+      "status": 400,
+      "contract": "ErrorResponse"
+    },
+    {
+      "check": "GET query inválida",
+      "status": 400,
+      "contract": "ErrorResponse"
+    },
+    {
+      "check": "JSON inválido antes de autenticación",
+      "status": 400,
+      "contract": "ErrorResponse"
+    },
+    {
+      "check": "Ruta inexistente",
+      "status": 404,
+      "contract": "ErrorResponse"
+    },
+    {
+      "check": "GET con JSON histórico nulo",
+      "status": 200,
+      "contract": "RecordsResponse"
+    }
+  ],
+  "real_neon_modified": false,
+  "environment_checks": [
+    {
+      "check": "API_KEY ausente incluso en production",
+      "exit": 0,
+      "api_key_defined": false
+    },
+    {
+      "check": "API_KEY vacía rechazada al arrancar",
+      "exit": 1
+    }
+  ],
+  "test_suites": {
+    "unit_http": {
+      "passed": 26,
+      "failed": 0
+    },
+    "postgresql_17_integration": {
+      "passed": 22,
+      "failed": 0
+    },
+    "total_passed": 48
+  },
+  "typecheck": "passed",
+  "build": "passed",
+  "documentation_verification": "passed",
+  "documentation_scope": "README raíz, 16 README dentro de docs, OpenAPI, JSON sintético, avisos históricos y corrección de comentario de .env.example",
+  "runtime_source_modified": false,
+  "database_schema_modified": false,
+  "neon_accessed_in_this_delivery": false,
+  "deployed": false,
+  "test_tools": {
+    "swagger_parser": "13.1.0",
+    "markdown_it": "15.0.3"
+  }
+}
