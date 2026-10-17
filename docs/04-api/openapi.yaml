@@ -1,0 +1,574 @@
+# Contrato documental: no modifica rutas ni instala Swagger UI.
+openapi: 3.0.3
+info:
+  title: Noise Monitor API · Grupo 1
+  version: 1.0.0
+  description: >-
+    Contrato del backend revisado el 17/10/2026 sobre main b33ded9. Ejemplos sintéticos. Perfil de
+    acceso con API_KEY configurada: las operaciones protegidas requieren x-api-key. Si API_KEY está
+    completamente ausente, la implementación permite esas operaciones sin clave; API_KEY vacía
+    impide arrancar. El servidor no sirve Swagger UI. Este archivo documenta rutas existentes y no
+    certifica despliegue.
+servers:
+  - url: http://localhost:{port}
+    description: Servidor local; ajustar al entorno autorizado.
+    variables:
+      port:
+        default: '3000'
+        description: Puerto HTTP configurado.
+tags:
+  - name: Estado
+    description: Conectividad básica del servicio.
+  - name: Mediciones
+    description: Guardado y consulta de lecturas de ruido.
+paths:
+  /api/health-check:
+    get:
+      operationId: getHealthCheck
+      tags:
+        - Estado
+      summary: Comprobar API y conexión básica a PostgreSQL
+      description: >-
+        Público. Ejecuta SELECT 1; no comprueba tabla, permisos de escritura ni calidad de
+        mediciones. No requiere body ni query.
+      security: []
+      responses:
+        '200':
+          description: Consulta simple a la BD completada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthOk'
+        '503':
+          description: Falla del ping. Este endpoint no usa el envoltorio error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthUnavailable'
+  /api/save-audio-record:
+    post:
+      operationId: saveAudioRecord
+      tags:
+        - Mediciones
+      summary: Guardar una medición de ruido
+      description: >-
+        Escritura con JSON estricto. Rechaza cualquier medición a <=50 m el mismo día local de
+        captura (MEASUREMENT_TIME_ZONE, predeterminado America/Guatemala), sin filtrar por
+        estudiante. No sube audio ni verifica identidad, autenticidad del auth_hash, coherencia
+        min/avg/max o fecha actual. API key exigida solo si está configurada en el servidor. No hay
+        idempotency key.
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveAudioRecordInput'
+            example:
+              timestamp: '2026-10-17T18:00:00.000Z'
+              latitude: 14.6349
+              longitude: -90.5069
+              student_id: test-student
+              auth_hash: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+              domain_data:
+                metric: avg
+                value_db: 62.4
+                noise_min_db: 48.1
+                noise_max_db: 78.9
+                noise_avg_db: 62.4
+                recording_duration_ms: 3000
+                device_model: Test device
+                app_version: 1.0.0
+      responses:
+        '201':
+          description: Medición insertada; se devuelve resumen.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SaveAudioRecordResponse'
+        '400':
+          description: Body inválido, JSON mal formado o mapeo P2003.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: API key ausente o incorrecta cuando el servidor la exige.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: NEARBY_READING_EXISTS para cercanía o DUPLICATE_RESOURCE para P2002.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                nearby:
+                  value:
+                    error:
+                      code: NEARBY_READING_EXISTS
+                      message: Ya existe una medición a 50 metros o menos en el mismo día
+        '500':
+          description: Error no mapeado. En production se omite detalle interno.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: P1001 DB_UNAVAILABLE o P1002 DB_TIMEOUT; otros errores del driver pueden mapear a 500.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/records:
+    get:
+      operationId: getRecords
+      tags:
+        - Mediciones
+      summary: Consultar mediciones por páginas
+      description: >-
+        Orden timestamp DESC y reading_id DESC. Solo page y limit, sin claves repetidas o
+        desconocidas. La representación HTTP debe ser dígitos positivos sin ceros iniciales,
+        espacios, decimales ni notación científica. Regla adicional: (page-1)*limit <=2147483647.
+        Página y total comparten RepeatableRead en una petición; no se congela el conjunto entre
+        peticiones. Excluye columna auth_hash, conserva domain_data sin limpiar claves internas. API
+        key exigida solo si está configurada en servidor.
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: page
+          in: query
+          required: false
+          description: >-
+            Página desde 1. Escribir dígitos sin ceros iniciales. Se aplica también el máximo de
+            desplazamiento.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 2147483647
+            default: 1
+        - name: limit
+          in: query
+          required: false
+          description: Filas máximas por página. Valor mayor de 100 se rechaza, no se recorta.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: >-
+            Página de registros o lista vacía. Fuera de rango mantiene el total y la página
+            solicitada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecordsResponse'
+              examples:
+                oneReading:
+                  value:
+                    data:
+                      - timestamp: '2026-10-17T18:00:00.000Z'
+                        latitude: 14.6349
+                        longitude: -90.5069
+                        student_id: test-student
+                        domain_data:
+                          metric: avg
+                          value_db: 62.4
+                          noise_min_db: 48.1
+                          noise_max_db: 78.9
+                          noise_avg_db: 62.4
+                          recording_duration_ms: 3000
+                          device_model: Test device
+                          app_version: 1.0.0
+                        reading_id: 00000000-0000-4000-8000-000000000001
+                        created_at: '2026-10-17T18:00:01.000Z'
+                    pagination:
+                      page: 1
+                      limit: 20
+                      total: 1
+                      total_pages: 1
+                      has_next: false
+                      has_previous: false
+                emptyTable:
+                  value:
+                    data: []
+                    pagination:
+                      page: 1
+                      limit: 20
+                      total: 0
+                      total_pages: 0
+                      has_next: false
+                      has_previous: false
+        '400':
+          description: Query inválida o desplazamiento excedido.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: API key ausente o incorrecta cuando el servidor la exige.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Error no contemplado, sin detalles internos en production.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: P1001 o P1002, según error recibido.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+      description: >-
+        Coincide con API_KEY del servidor. Requerida cuando esa variable está definida. No
+        identifica al estudiante.
+  schemas:
+    DomainDataInput:
+      type: object
+      additionalProperties: false
+      required:
+        - metric
+        - value_db
+        - noise_min_db
+        - noise_max_db
+        - noise_avg_db
+        - recording_duration_ms
+        - device_model
+        - app_version
+      properties:
+        metric:
+          type: string
+          enum:
+            - min
+            - max
+            - avg
+        value_db:
+          type: number
+          minimum: -160
+          maximum: 150
+          description: >-
+            Debe corresponder a la métrica por convención del cliente; el POST no comprueba esa
+            igualdad.
+        noise_min_db:
+          type: number
+          minimum: -160
+          maximum: 150
+        noise_max_db:
+          type: number
+          minimum: -160
+          maximum: 150
+        noise_avg_db:
+          type: number
+          minimum: -160
+          maximum: 150
+        recording_duration_ms:
+          type: integer
+          minimum: 1
+          maximum: 300000
+        device_model:
+          type: string
+          pattern: ^\s*\S(?:[\s\S]{0,118}\S)?\s*$
+          description: >-
+            Se recortan espacios exteriores. Longitud después de trim: 1–120. No se aceptan strings
+            formadas solo por espacios.
+        app_version:
+          type: string
+          pattern: ^\s*\S(?:[\s\S]{0,38}\S)?\s*$
+          description: >-
+            Se recortan espacios exteriores. Longitud después de trim: 1–40. No se aceptan strings
+            formadas solo por espacios.
+    SaveAudioRecordInput:
+      type: object
+      additionalProperties: false
+      required:
+        - timestamp
+        - latitude
+        - longitude
+        - student_id
+        - auth_hash
+        - domain_data
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: Fecha ISO 8601 con hora y zona Z u offset; Zod es la fuente de validación efectiva.
+        latitude:
+          type: number
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: number
+          minimum: -180
+          maximum: 180
+        student_id:
+          type: string
+          pattern: ^\s*\S(?:[\s\S]{0,48}\S)?\s*$
+          description: >-
+            Se recortan espacios exteriores. Longitud después de trim: 1–50. No se aceptan strings
+            formadas solo por espacios.
+        auth_hash:
+          type: string
+          pattern: ^\s*\S(?:[\s\S]{0,62}\S)?\s*$
+          description: Texto de 1–64 tras trim; no se exige formato SHA-256 ni se verifica autenticidad.
+        domain_data:
+          $ref: '#/components/schemas/DomainDataInput'
+      example:
+        timestamp: '2026-10-17T18:00:00.000Z'
+        latitude: 14.6349
+        longitude: -90.5069
+        student_id: test-student
+        auth_hash: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        domain_data:
+          metric: avg
+          value_db: 62.4
+          noise_min_db: 48.1
+          noise_max_db: 78.9
+          noise_avg_db: 62.4
+          recording_duration_ms: 3000
+          device_model: Test device
+          app_version: 1.0.0
+    SavedReading:
+      type: object
+      additionalProperties: false
+      required:
+        - reading_id
+        - student_id
+        - metric
+        - value_db
+        - created_at
+      properties:
+        reading_id:
+          type: string
+          format: uuid
+        student_id:
+          type: string
+        metric:
+          type: string
+          enum:
+            - min
+            - max
+            - avg
+        value_db:
+          type: number
+          minimum: -160
+          maximum: 150
+        created_at:
+          type: string
+          format: date-time
+      example:
+        reading_id: 00000000-0000-4000-8000-000000000001
+        student_id: test-student
+        metric: avg
+        value_db: 62.4
+        created_at: '2026-10-17T18:00:01.000Z'
+    SaveAudioRecordResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+      properties:
+        data:
+          $ref: '#/components/schemas/SavedReading'
+      example:
+        data:
+          reading_id: 00000000-0000-4000-8000-000000000001
+          student_id: test-student
+          metric: avg
+          value_db: 62.4
+          created_at: '2026-10-17T18:00:01.000Z'
+    RecordedReading:
+      type: object
+      additionalProperties: false
+      required:
+        - reading_id
+        - timestamp
+        - latitude
+        - longitude
+        - student_id
+        - domain_data
+        - created_at
+      properties:
+        reading_id:
+          type: string
+          format: uuid
+        timestamp:
+          type: string
+          format: date-time
+        latitude:
+          type: number
+          description: Valor almacenado; no se vuelve a validar en GET.
+        longitude:
+          type: number
+          description: Valor almacenado; no se vuelve a validar en GET.
+        student_id:
+          type: string
+          description: Identificador almacenado; puede existir contenido histórico inválido.
+        domain_data:
+          description: >-
+            Cualquier valor JSON almacenado, incluido null, arrays u objetos incompletos. No se
+            filtran claves históricas dentro del JSON.
+        created_at:
+          type: string
+          format: date-time
+      example:
+        timestamp: '2026-10-17T18:00:00.000Z'
+        latitude: 14.6349
+        longitude: -90.5069
+        student_id: test-student
+        domain_data:
+          metric: avg
+          value_db: 62.4
+          noise_min_db: 48.1
+          noise_max_db: 78.9
+          noise_avg_db: 62.4
+          recording_duration_ms: 3000
+          device_model: Test device
+          app_version: 1.0.0
+        reading_id: 00000000-0000-4000-8000-000000000001
+        created_at: '2026-10-17T18:00:01.000Z'
+    Pagination:
+      type: object
+      additionalProperties: false
+      required:
+        - page
+        - limit
+        - total
+        - total_pages
+        - has_next
+        - has_previous
+      properties:
+        page:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+        total:
+          type: integer
+          minimum: 0
+        total_pages:
+          type: integer
+          minimum: 0
+          description: ceil(total / limit); 0 para tabla vacía.
+        has_next:
+          type: boolean
+          description: page < total_pages
+        has_previous:
+          type: boolean
+          description: total > 0 && page > 1; no garantiza que la página inmediatamente anterior tenga datos.
+    RecordsResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+        - pagination
+      properties:
+        data:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/RecordedReading'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+      example:
+        data:
+          - timestamp: '2026-10-17T18:00:00.000Z'
+            latitude: 14.6349
+            longitude: -90.5069
+            student_id: test-student
+            domain_data:
+              metric: avg
+              value_db: 62.4
+              noise_min_db: 48.1
+              noise_max_db: 78.9
+              noise_avg_db: 62.4
+              recording_duration_ms: 3000
+              device_model: Test device
+              app_version: 1.0.0
+            reading_id: 00000000-0000-4000-8000-000000000001
+            created_at: '2026-10-17T18:00:01.000Z'
+        pagination:
+          page: 1
+          limit: 20
+          total: 1
+          total_pages: 1
+          has_next: false
+          has_previous: false
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      additionalProperties: false
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          additionalProperties: false
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              description: >-
+                Opcional. En validación, lista de {path,message,code}. Otros errores internos de
+                desarrollo pueden incluir texto.
+      example:
+        error:
+          code: UNAUTHORIZED
+          message: API key inválida o ausente
+    HealthOk:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - database
+      properties:
+        status:
+          type: string
+          enum:
+            - ok
+        database:
+          type: string
+          enum:
+            - ok
+      example:
+        status: ok
+        database: ok
+    HealthUnavailable:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - database
+      properties:
+        status:
+          type: string
+          enum:
+            - error
+        database:
+          type: string
+          enum:
+            - unavailable
+      example:
+        status: error
+        database: unavailable

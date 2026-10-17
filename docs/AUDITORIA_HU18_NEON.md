@@ -1,5 +1,9 @@
 # HU-18: revisión de la base real del equipo
 
+> Auditoría histórica del 6/10/2026. Los conteos siguientes no representan el
+> estado actual de la BD. Consultar la [guía vigente de calidad](06-reglas-y-calidad/README.md)
+> para repetir el procedimiento y la [trazabilidad](12-trazabilidad/README.md).
+
 Fecha: 6 de octubre de 2026, Guatemala. Responsable: Marvin Danilo Culajay.
 
 ## Acceso y método
